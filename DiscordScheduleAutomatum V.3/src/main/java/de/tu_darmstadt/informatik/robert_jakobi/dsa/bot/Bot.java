@@ -13,6 +13,7 @@ import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.ICalConstructor;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
+import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.PrivateChannel;
@@ -20,7 +21,10 @@ import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.GenericEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.EventListener;
+import net.dv8tion.jda.api.requests.GatewayIntent;
 import net.dv8tion.jda.api.requests.RestAction;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 
 /**
  * Core of the DSA-Bot. Handles poll management and command calls.
@@ -41,6 +45,24 @@ public class Bot {
     private final List<Poll> runningPolls = Poll.loadPolls();
 
     /**
+     * A list with all currently available commands with their parameters and
+     * description.
+     */
+    private static final List<String[]> commands;
+
+    static {
+        commands = List.of(//
+                new String[] { "!newpoll", "{name};{question};{options}+", "Creates a new poll" }, //
+                new String[] { "!endpoll", "{name}<;keep>", "Evaluates <and deletes> given poll" }, //
+                new String[] { "!delpoll", "{name}", "Deletes a existing poll" }, //
+                new String[] { "!poke", "{name} <{emote}>", "Mentions all, that hadn't reacted to the poll <with emote>" }, //
+                new String[] { "!who", "{id} <{emote}>", "Lists all, that reacted to the message <with emote>" }, //
+                new String[] { "!help", "", "This :eyes:" }, //
+                new String[] { "!ping", "", "Tests if bot is up and running" } //
+        );
+    }
+
+    /**
      * Constructor of {@link Bot}. <br>
      * Initialises vital bot API and fail, if not possible.
      *
@@ -48,26 +70,29 @@ public class Bot {
      *            Token of application this bot shall connect to
      */
     public Bot(final String botToken) {
-        JDABuilder builder = JDABuilder.createDefault(botToken);
-        builder.setAutoReconnect(true);
-        builder.addEventListeners(new EventListener() {
-            @Override
-            public void onEvent(GenericEvent event) {
-                if (event instanceof MessageReceivedEvent msgEvent) {
-                    if (msgEvent.isFromGuild())
-                        Bot.this.onMessageReceived(msgEvent);
-                    else if (!msgEvent.getAuthor().isBot()) msgEvent.getChannel().sendMessage("REDRUM REDRUM REDRUM").queue();
-                }
-            }
-        });
+        JDABuilder builder = JDABuilder.createDefault(botToken) //
+                .setChunkingFilter(ChunkingFilter.ALL) //
+                .setMemberCachePolicy(MemberCachePolicy.ALL) //
+                .enableIntents(GatewayIntent.GUILD_MEMBERS) //
+                .setAutoReconnect(true) //
+                .addEventListeners(new EventListener() {
+                    @Override
+                    public void onEvent(GenericEvent event) {
+                        if (event instanceof MessageReceivedEvent msgEvent) {
+                            if (msgEvent.isFromGuild())
+                                Bot.this.onMessageReceived(msgEvent);
+                            else if (!msgEvent.getAuthor().isBot())
+                                msgEvent.getChannel().sendMessage("REDRUM REDRUM REDRUM").queue();
+                        }
+                    }
+                }) //
+                .setStatus(OnlineStatus.ONLINE);
         // Login attempt: if it fails end program
         try {
             this.jda = builder.build();
         } catch (LoginException e) {
-            e.printStackTrace();
-            throw new RuntimeException();
+            throw new RuntimeException(e);
         }
-        builder.setStatus(OnlineStatus.ONLINE);
     }
 
     /**
@@ -98,7 +123,7 @@ public class Bot {
             answer.add(switch (message_elem[0]) {
                 case "!newpoll" -> this.newPoll(elements, event);
                 case "!delpoll" -> this.deletePoll(elements[0], event);
-                case "!endpoll" -> this.endPoll(elements[0], event);
+                case "!endpoll" -> this.endPoll(elements[0], elements.length > 1 && elements[1].equals("keep"), event);
                 case "!poke" -> this.poke(elements, event);
                 case "!who" -> Bot.who(elements, event).stream() //
                         .map(User::getName) //
@@ -146,20 +171,10 @@ public class Bot {
                 I am DSA, the **D**iscord **S**chedule **A**utomatum.
 
                 My commands are:
-                **!newpoll** {name};{question};{dates...}
-                \t*\\~ Creates a new poll*
-                **!endpoll** {name}
-                \t*\\~ Evaluates and deletes given poll*
-                **!delpoll** {name}
-                \t*\\~ Deletes a existing poll*
-                **!poke** {name} <emote>
-                \t*\\~ Mentions all, that hadn't reacted to the poll (with emote)*
-                **!who** {id} <emote>
-                \t*\\~ Lists all, that reacted to the message (with emote)*
-                **!help**
-                \t*\\~ This :eyes:*
-                **!ping**
-                \t*\\~ Tests if bot is up and running*""";
+                """ +  //
+                commands.stream() //
+                        .map("**%s** %s\n\t*\\~ %s*"::formatted) //
+                        .collect(Collectors.joining("\n"));
     }
 
     /**
@@ -220,11 +235,12 @@ public class Bot {
      * 
      * @param poll
      *            Name of the poll to conclude
+     * @param keep
      * @param event
      *            Event that triggered this response
      * @return An empty string
      */
-    private String endPoll(String poll, MessageReceivedEvent event) {
+    private String endPoll(String poll, boolean keep, MessageReceivedEvent event) {
         if (!this.runningPolls.stream().map(Poll::getName).anyMatch(poll::equals)) return "Poll does not exist";
         this.runningPolls.removeAll( //
                 this.runningPolls.stream() //
@@ -242,7 +258,7 @@ public class Bot {
                                     .get();
                             event.getChannel().sendFile(ICalConstructor.getICal(date), date.replaceAll("[.]", "_") + ".ics")
                                     .queue();
-                            m.delete().queue();
+                            if (!keep) m.delete().queue();
                         }) //
                         .peek(Poll::delete) //
                         .toList());
@@ -263,6 +279,8 @@ public class Bot {
      * @return List of all users that reacted to given message
      */
     private static List<User> who(String[] elements, MessageReceivedEvent event) {
+        event.getGuild().findMembers(m -> m.hasPermission(event.getGuildChannel(), Permission.MESSAGE_HISTORY)).onSuccess(System.out::println);
+
         return event.getChannel() //
                 .retrieveMessageById(elements[0]) //
                 .complete() //
@@ -301,10 +319,12 @@ public class Bot {
                 .getMembers() //
                 .stream() //
                 .map(Member::getUser) //
+                .peek(System.out::println) //
                 .filter(u -> !filter.contains(u)) //
+                .peek(System.out::println) //
                 .map(User::getAsMention) //
                 .forEach(answer::add);
-        if (answer.size() == 1) answer.add("Niemand");
+        if (answer.size() == 1) answer.replaceAll(str -> "Abstimmung abgeschlossen!");
         return answer.stream().collect(Collectors.joining("\n"));
     }
 

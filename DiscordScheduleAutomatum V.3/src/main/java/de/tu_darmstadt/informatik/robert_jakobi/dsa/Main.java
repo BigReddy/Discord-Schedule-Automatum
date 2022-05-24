@@ -4,8 +4,6 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileAttribute;
 
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.bot.Bot;
 
@@ -38,6 +36,7 @@ public class Main {
      * 
      * @throws IOException
      *             Thrown if issues on the creation of the file structure
+     *             occured
      */
     private static void setupFileStructure() throws IOException {
         Files.createDirectories(Paths.get("rec", "logs"));
