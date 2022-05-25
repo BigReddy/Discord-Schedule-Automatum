@@ -13,10 +13,8 @@ import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.ICalConstructor;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.OnlineStatus;
-import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.PrivateChannel;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.GenericEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
@@ -31,7 +29,7 @@ import net.dv8tion.jda.api.utils.MemberCachePolicy;
  *
  * @author Big_Reddy
  * @since 17
- * @version 3
+ * @version 3.1
  */
 public class Bot {
     /**
@@ -79,9 +77,10 @@ public class Bot {
                     @Override
                     public void onEvent(GenericEvent event) {
                         if (event instanceof MessageReceivedEvent msgEvent) {
+                            if (msgEvent.getAuthor().isBot()) return;
                             if (msgEvent.isFromGuild())
-                                Bot.this.onMessageReceived(msgEvent);
-                            else if (!msgEvent.getAuthor().isBot())
+                                Bot.this.onServerMessageReceived(msgEvent);
+                            else
                                 msgEvent.getChannel().sendMessage("REDRUM REDRUM REDRUM").queue();
                         }
                     }
@@ -101,8 +100,10 @@ public class Bot {
      * @param event
      *            Event containing all data needed
      */
-    public void onMessageReceived(final MessageReceivedEvent event) {
+    public void onServerMessageReceived(final MessageReceivedEvent event) {
         if (!event.getChannel().getName().equals("schedule")) return;
+
+        var typing = event.getChannel().sendTyping().submit();
         final String message = event.getMessage().getContentRaw();
 
         final List<String> answer = new ArrayList<>();
@@ -126,6 +127,7 @@ public class Bot {
                 case "!endpoll" -> this.endPoll(elements[0], elements.length > 1 && elements[1].equals("keep"), event);
                 case "!poke" -> this.poke(elements, event);
                 case "!who" -> Bot.who(elements, event).stream() //
+                        .filter(u -> !u.isBot()) //
                         .map(User::getName) //
                         .collect(Collectors.joining(" "));
                 default -> "";
@@ -138,6 +140,7 @@ public class Bot {
         // Fail save
         if (!event.getAuthor().isBot() && event.getChannel().getName().equals("schedule")) event.getMessage().delete().queue();
         if (!reply.isEmpty()) event.getChannel().sendMessage(reply).queue();
+        typing.cancel(true);
     }
 
     /**
@@ -149,15 +152,11 @@ public class Bot {
      *            Message to send
      */
     public void sendMessage(final String id, final String message) {
-        try {
-            final PrivateChannel channel = this.jda.getUserById(id).openPrivateChannel().complete();
-            // if
-            // (!channel.retrieveMessageById(channel.getLatestMessageId()).complete().getContentRaw().equals(message))
-            channel.sendMessage(message).queue();
-        } catch (NullPointerException e) {
-            e.printStackTrace();
-            System.out.println("Could not send message to user: " + id);
-        }
+        this.jda.retrieveUserById(id) //
+                .submit() //
+                .thenCompose(u -> u.openPrivateChannel().submit()) //
+                .thenCompose(c -> c.sendMessage(message).submit()) //
+                .whenComplete((msg, err) -> System.out.println(err != null ? "Could not send message to user: " + id : ""));
     }
 
     /**
@@ -279,8 +278,6 @@ public class Bot {
      * @return List of all users that reacted to given message
      */
     private static List<User> who(String[] elements, MessageReceivedEvent event) {
-        event.getGuild().findMembers(m -> m.hasPermission(event.getGuildChannel(), Permission.MESSAGE_HISTORY)).onSuccess(System.out::println);
-
         return event.getChannel() //
                 .retrieveMessageById(elements[0]) //
                 .complete() //
