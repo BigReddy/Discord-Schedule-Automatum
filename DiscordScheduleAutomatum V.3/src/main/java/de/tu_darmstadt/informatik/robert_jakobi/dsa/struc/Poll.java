@@ -4,18 +4,22 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InvalidClassException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+
+import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.FileManager;
+import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.SystemProperties;
 
 /**
  * Data class representing a poll. Self managed storing and loading to files for
@@ -30,12 +34,12 @@ public class Poll implements Serializable {
     /**
      * Serial id
      */
-    private static final long serialVersionUID = -7908803586677523162L;
+    private static final long serialVersionUID = -1061832211752473872L;
 
     /**
      * Unique message id containing poll.
      */
-    private String poll;
+    private String uuid;
     /**
      * Name of the poll
      */
@@ -59,20 +63,20 @@ public class Poll implements Serializable {
      * @param options
      *            Possible answer to poll
      */
-    public Poll(String name, String question, String... options) {
+    public Poll(String name, String question, String[] options) {
         this.name = name;
         this.question = question;
         this.options = options;
     }
 
     /**
-     * Setter for {@link Poll#poll poll}.
+     * Setter for {@link Poll#uuid poll}.
      * 
      * @param poll
      *            ID of associated poll message
      */
-    public void setPoll(String poll) {
-        this.poll = poll;
+    public void setUUID(String uuid) {
+        this.uuid = uuid;
     }
 
     /**
@@ -89,8 +93,8 @@ public class Poll implements Serializable {
      * 
      * @return Message ID of poll
      */
-    public String getPoll() {
-        return this.poll;
+    public String getUUID() {
+        return this.uuid;
     }
 
     /**
@@ -120,7 +124,7 @@ public class Poll implements Serializable {
      * @return If ID of message is set
      */
     public boolean isReady() {
-        return this.poll != null;
+        return this.uuid != null;
     }
 
     /**
@@ -128,11 +132,10 @@ public class Poll implements Serializable {
      */
     public String toString() {
         Supplier<String> s = getReactions();
-        return String.format("*%s:*\n\n%s", //
-                this.question, //
+        return "*%s:*%n%n%s".formatted(this.question, //
                 Arrays.stream(this.options) //
                         .map(opt -> s.get() + " **" + opt + "**") //
-                        .collect(Collectors.joining("\n")));
+                        .collect(Collectors.joining(System.lineSeparator())));
     }
 
     /**
@@ -157,8 +160,10 @@ public class Poll implements Serializable {
      * @return If removal was successful
      */
     public boolean delete() {
-        this.poll = null;
-        return Paths.get("rec", "polls", this.name).toFile().delete();
+        this.uuid = null;
+        return this.getPath() //
+                .toFile() //
+                .delete();
     }
 
     /**
@@ -167,8 +172,7 @@ public class Poll implements Serializable {
      * @return If saving was successful
      */
     public boolean saveToFile() {
-        try (ObjectOutputStream out = new ObjectOutputStream(
-                new FileOutputStream(Paths.get("rec", "polls", this.getName()).toFile()))) {
+        try (var out = new ObjectOutputStream(new FileOutputStream(getPath().toFile()))) {
             out.writeObject(this);
             return true;
         } catch (Exception e) {
@@ -186,8 +190,11 @@ public class Poll implements Serializable {
      * @return Loaded poll
      */
     public static Poll loadFromFile(File file) {
-        try (ObjectInputStream in = new ObjectInputStream(new FileInputStream(file))) {
-            return (Poll) in.readObject();
+        try (var in = new ObjectInputStream(new FileInputStream(file))) {
+            if (in.readObject() instanceof Poll poll) {
+                return poll;
+            }
+            throw new InvalidClassException("");
         } catch (IOException | ClassNotFoundException e) {
             System.out.println("Poll could not be recovered");
             return null;
@@ -199,17 +206,21 @@ public class Poll implements Serializable {
      * 
      * @return All active polls loaded
      */
-    public static List<Poll> loadPolls() {
+    public static Map<String, Poll> loadPolls() {
         try {
-            return Files.list(Paths.get("rec", "polls")) //
+            return Files.list(FileManager.getPath(SystemProperties.pollsPath)) //
                     .map(Path::toFile) //
                     .map(Poll::loadFromFile) //
                     .filter(Objects::nonNull) //
-                    .collect(Collectors.toList());
+                    .collect(Collectors.toMap(Poll::getName, Function.identity()));
         } catch (IOException e) {
             System.out.println("No polls could not be recovered");
             e.printStackTrace();
-            return new ArrayList<>();
+            return new HashMap<>();
         }
+    }
+
+    private Path getPath() {
+        return FileManager.getPath(SystemProperties.pollsPath, this.name);
     }
 }

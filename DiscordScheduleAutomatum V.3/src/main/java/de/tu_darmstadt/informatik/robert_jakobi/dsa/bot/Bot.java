@@ -1,13 +1,18 @@
 package de.tu_darmstadt.informatik.robert_jakobi.dsa.bot;
 
+import java.time.temporal.TemporalAccessor;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import javax.security.auth.login.LoginException;
 
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.struc.Poll;
+import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.DateFormat;
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.DateHelper;
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.ICalConstructor;
 import net.dv8tion.jda.api.JDA;
@@ -16,7 +21,6 @@ import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.events.GenericEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.EventListener;
 import net.dv8tion.jda.api.requests.GatewayIntent;
@@ -40,7 +44,7 @@ public class Bot {
     /**
      * Currently running polls
      */
-    private final List<Poll> runningPolls = Poll.loadPolls();
+    private final Map<String, Poll> runningPolls = Poll.loadPolls();
 
     /**
      * A list with all currently available commands with their parameters and
@@ -73,18 +77,12 @@ public class Bot {
                 .setMemberCachePolicy(MemberCachePolicy.ALL) //
                 .enableIntents(GatewayIntent.GUILD_MEMBERS) //
                 .setAutoReconnect(true) //
-                .addEventListeners(new EventListener() {
-                    @Override
-                    public void onEvent(GenericEvent event) {
-                        if (event instanceof MessageReceivedEvent msgEvent) {
-                            if (msgEvent.getAuthor().isBot()) return;
-                            if (msgEvent.isFromGuild())
-                                Bot.this.onServerMessageReceived(msgEvent);
-                            else
-                                msgEvent.getChannel().sendMessage("REDRUM REDRUM REDRUM").queue();
-                        }
+                .addEventListeners((EventListener) (event -> {
+                    if (event instanceof MessageReceivedEvent msgEvent) {
+                        if (msgEvent.getAuthor().isBot()) return;
+                        if (msgEvent.isFromGuild()) Bot.this.onServerMessageReceived(msgEvent);
                     }
-                }) //
+                })) //
                 .setStatus(OnlineStatus.ONLINE);
         // Login attempt: if it fails end program
         try {
@@ -100,7 +98,7 @@ public class Bot {
      * @param event
      *            Event containing all data needed
      */
-    public void onServerMessageReceived(final MessageReceivedEvent event) {
+    private void onServerMessageReceived(final MessageReceivedEvent event) {
         if (!event.getChannel().getName().equals("schedule")) return;
 
         var typing = event.getChannel().sendTyping().submit();
@@ -117,7 +115,7 @@ public class Bot {
             answer.add(switch (message_elem[0]) {
                 case "!ping" -> "pong";
                 case "!help" -> Bot.help();
-                default -> "";
+                default -> "???";
             });
         } else {
             String[] elements = message_elem[1].split(";", 3);
@@ -134,11 +132,12 @@ public class Bot {
             });
         }
         final String reply = answer.stream() //
-                .filter(s -> !s.isBlank()) //
-                .collect(Collectors.joining("\n"));
+                .filter(Objects::nonNull) //
+                .filter(Predicate.not(String::isBlank)) //
+                .collect(Collectors.joining(System.lineSeparator()));
 
-        // Fail save
-        if (!event.getAuthor().isBot() && event.getChannel().getName().equals("schedule")) event.getMessage().delete().queue();
+        // Fail-safe
+        if (!event.getAuthor().isBot()) event.getMessage().delete().queue();
         if (!reply.isEmpty()) event.getChannel().sendMessage(reply).queue();
         typing.cancel(true);
     }
@@ -190,15 +189,15 @@ public class Bot {
      * @return An empty string
      */
     private String newPoll(String[] elements, MessageReceivedEvent event) {
-        if (this.runningPolls.stream().map(Poll::getName).anyMatch(elements[0]::equals)) return "Poll already exists";
+        if (this.runningPolls.containsKey(elements[0])) return "Poll already exists";
 
         boolean next = elements[0].equals("next");
         Poll poll = new Poll(elements[0], //
                 next ? "Wann habt ihr Zeit für die nächste Session?" : elements[1], //
                 next ? DateHelper.nextWeekEnds() : elements[2].split(";"));
-        this.runningPolls.add(poll);
+        this.runningPolls.put(poll.getName(), poll);
         Message message = event.getChannel().sendMessage("@everyone\n" + poll.toString()).complete();
-        poll.setPoll(message.getId());
+        poll.setUUID(message.getId());
         Stream.generate(Poll.getReactions()) //
                 .limit(Math.min(10, poll.getOptionCount())) //
                 .map(message::addReaction) //
@@ -211,20 +210,17 @@ public class Bot {
      * !delpoll command<br>
      * Deletes all data about given poll without concluding it.
      * 
-     * @param poll
+     * @param pollName
      *            Name of the poll to delete
      * @param event
      *            Event that triggered this response
      * @return If poll got deleted
      */
-    private String deletePoll(String poll, MessageReceivedEvent event) {
-        if (!this.runningPolls.stream().map(Poll::getName).anyMatch(poll::equals)) return "Poll does not exist";
-        this.runningPolls.removeAll(this.runningPolls.stream() //
-                .filter(p -> p.getName().equals(poll)) //
-                .filter(Poll::isReady) //
-                .peek(p -> event.getChannel().retrieveMessageById(p.getPoll()).complete().delete().queue()) //
-                .peek(Poll::delete) //
-                .toList());
+    private String deletePoll(String pollName, MessageReceivedEvent event) {
+        if (!this.runningPolls.containsKey(pollName)) return "Poll does not exist";
+        Poll poll = this.runningPolls.remove(pollName);
+        event.getChannel().retrieveMessageById(poll.getUUID()).complete().delete().queue();
+        poll.delete();
         return "Poll deleted";
     }
 
@@ -239,29 +235,32 @@ public class Bot {
      *            Event that triggered this response
      * @return An empty string
      */
-    private String endPoll(String poll, boolean keep, MessageReceivedEvent event) {
-        if (!this.runningPolls.stream().map(Poll::getName).anyMatch(poll::equals)) return "Poll does not exist";
-        this.runningPolls.removeAll( //
-                this.runningPolls.stream() //
-                        .filter(p -> p.getName().equals(poll)) //
-                        .filter(Poll::isReady) //
-                        .peek(p -> {
-                            Message m = event.getChannel().retrieveMessageById(p.getPoll()).complete();
-                            String date = m.getReactions() //
-                                    .stream() //
-                                    .sorted((a, b) -> (b.getCount() - a.getCount())) //
-                                    .peek(r -> System.out.println(r.getReactionEmote().getAsReactionCode() + " " + r.getCount())) //
-                                    .reduce((t, u) -> t) //
-                                    .map(r -> m.getReactions().indexOf(r)) //
-                                    .map(index -> p.getOption(index)) //
-                                    .get();
-                            event.getChannel().sendFile(ICalConstructor.getICal(date), date.replaceAll("[.]", "_") + ".ics")
-                                    .queue();
-                            if (!keep) m.delete().queue();
-                        }) //
-                        .peek(Poll::delete) //
-                        .toList());
-        return "";
+    private String endPoll(String pollName, boolean keep, MessageReceivedEvent event) {
+        if (!this.runningPolls.containsKey(pollName)) return "Poll does not exist";
+        List<String> answer = new ArrayList<>();
+        String pokeReturn = this.poke(new String[] { pollName }, event);
+        if (pokeReturn.contains(System.lineSeparator())) return pokeReturn;
+        answer.add(pokeReturn);
+        int count = event.getTextChannel().getMembers().size();
+        Poll poll = this.runningPolls.get(pollName);
+        Message message = event.getChannel().retrieveMessageById(poll.getUUID()).complete();
+        TemporalAccessor date = message.getReactions() //
+                .stream() //
+                .filter(reaction -> count == reaction.getCount()) //
+                .peek(r -> System.out.println(r.getReactionEmote().getAsReactionCode() + " " + r.getCount())) //
+                .map(message.getReactions()::indexOf) //
+                .sorted().map(index -> poll.getOption(index)) //
+                .map(DateFormat.DATE_DE::parse).findFirst() //
+                .orElse(null);
+        if (Objects.nonNull(date)) {
+            event.getChannel().sendFile(ICalConstructor.getICal(date), DateFormat.DATE_DE_FILE.format(date) + ".ics").queue();
+            if (!keep) message.delete().queue();
+            poll.delete();
+            answer.add("@everyone Nächster Termin steht fest: " + DateFormat.DATE_DE.format(date));
+        } else {
+            answer.add("```diff\n- Kein Termin konnte gefunden werden```");
+        }
+        return String.join(System.lineSeparator(), answer);
     }
 
     /**
@@ -303,26 +302,22 @@ public class Bot {
      * @return Text of an answer message
      */
     private String poke(String[] elements, MessageReceivedEvent event) {
+        if (!this.runningPolls.containsKey(elements[0])) return "Poll does not exist";
         List<String> answer = new ArrayList<>();
         answer.add("Es müssen die Umfrage noch ausfüllen:");
-        elements[0] = this.runningPolls.stream() //
-                .filter(p -> p.getName().equals(elements[0])) //
-                .filter(Poll::isReady) //
-                .findAny() //
-                .map(Poll::getPoll) //
-                .orElse("0");
+        elements[0] = this.runningPolls.get(elements[0]).getUUID();
         List<User> filter = who(elements, event);
         event.getTextChannel() //
                 .getMembers() //
                 .stream() //
                 .map(Member::getUser) //
-                .peek(System.out::println) //
-                .filter(u -> !filter.contains(u)) //
+                .filter(Predicate.not(filter::contains)) //
                 .peek(System.out::println) //
                 .map(User::getAsMention) //
                 .forEach(answer::add);
-        if (answer.size() == 1) answer.replaceAll(str -> "Abstimmung abgeschlossen!");
-        return answer.stream().collect(Collectors.joining("\n"));
+        return answer.size() == 1 //
+                ? "Abstimmung abgeschlossen!" //
+                : String.join(System.lineSeparator(), answer);
     }
 
     /**
