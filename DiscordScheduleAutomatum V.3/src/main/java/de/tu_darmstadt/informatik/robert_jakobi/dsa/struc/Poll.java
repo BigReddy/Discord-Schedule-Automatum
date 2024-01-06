@@ -14,10 +14,12 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.DateHelper;
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.FileManager;
 import de.tu_darmstadt.informatik.robert_jakobi.dsa.util.SystemProperties;
 
@@ -39,7 +41,9 @@ public class Poll implements Serializable {
     /**
      * Unique message id containing poll.
      */
-    private String uuid;
+    private String messageId;
+
+    private final UUID uuid = UUID.randomUUID();
     /**
      * Name of the poll
      */
@@ -70,13 +74,13 @@ public class Poll implements Serializable {
     }
 
     /**
-     * Setter for {@link Poll#uuid poll}.
+     * Setter for {@link Poll#messageId poll}.
      * 
      * @param poll
      *            ID of associated poll message
      */
-    public void setUUID(String uuid) {
-        this.uuid = uuid;
+    public void setMessageId(String messageId) {
+        this.messageId = messageId;
     }
 
     /**
@@ -93,8 +97,8 @@ public class Poll implements Serializable {
      * 
      * @return Message ID of poll
      */
-    public String getUUID() {
-        return this.uuid;
+    public String getMessageId() {
+        return this.messageId;
     }
 
     /**
@@ -124,7 +128,7 @@ public class Poll implements Serializable {
      * @return If ID of message is set
      */
     public boolean isReady() {
-        return this.uuid != null;
+        return this.messageId != null;
     }
 
     /**
@@ -160,10 +164,10 @@ public class Poll implements Serializable {
      * @return If removal was successful
      */
     public boolean delete() {
-        this.uuid = null;
+        this.messageId = null;
         return this.getPath() //
                 .toFile() //
-                .delete();
+                .renameTo(this.getDeletePath().toFile());
     }
 
     /**
@@ -222,5 +226,13 @@ public class Poll implements Serializable {
 
     private Path getPath() {
         return FileManager.getPath(SystemProperties.pollsPath, this.name);
+    }
+
+    private Path getDeletePath() {
+        return FileManager.getPath(SystemProperties.finishedPollsPath, DateHelper.getTimestamp());
+    }
+
+    public UUID getUuid() {
+        return this.uuid;
     }
 }

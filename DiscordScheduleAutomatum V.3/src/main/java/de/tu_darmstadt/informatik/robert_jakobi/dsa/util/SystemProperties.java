@@ -5,5 +5,6 @@ public interface SystemProperties {
 
     String logPath = "logs";
     String pollsPath = "polls";
+    String finishedPollsPath = "old_polls";
     String keyPath = "key";
 }

@@ -1,5 +1,6 @@
 package de.tu_darmstadt.informatik.robert_jakobi.dsa.util;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Calendar;
@@ -47,5 +48,9 @@ public final class DateHelper {
         var time = LocalTime.parse(timeString);
         var ldt = date.atTime(time);
         return format.format(ldt);
+    }
+    
+    public static String getTimestamp() {
+        return DateFormat.FILE_FULL.format(Instant.now());
     }
 }

@@ -52,9 +52,10 @@ public class FileManager implements SystemProperties {
     private static void setupFileStructure() throws IOException {
         Files.createDirectories(getPath(logPath));
         Files.createDirectories(getPath(pollsPath));
+        Files.createDirectories(getPath(finishedPollsPath));
 
         validateRequiredFile(keyPath, "Bot-Key needed! Location: ", true);
-        validateRequiredFile(ICAL_FORMAT_FILE, "Please provide required data for ICal invite in", false);
+        validateRequiredFile(ICAL_FORMAT_FILE, "Please provide required format for ICal invite in", false);
         validateRequiredFile(ICAL_DATA_FILE, "Please provide required data for ICal invite in", false);
     }
 

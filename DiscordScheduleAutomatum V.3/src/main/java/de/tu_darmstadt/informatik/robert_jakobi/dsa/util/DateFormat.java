@@ -8,7 +8,7 @@ import java.time.temporal.TemporalAccessor;
 public enum DateFormat {
     FILE_FULL("yyyy-MM-dd_HH-mm-ss-SSS"),
     ICAL_DATE("yyyyMMdd"),
-    ICAL_DATE_FULL("yyyyMMdd'T'HHmmss'Z'"),
+    ICAL_DATE_FULL("yyyyMMdd'T'HHmmss"),
     DATE_DE("dd.MM.yyyy"),
     DATE_DE_FILE("dd_MM_yyyy"), //
     ;

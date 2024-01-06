@@ -7,8 +7,8 @@ import static de.tu_darmstadt.informatik.robert_jakobi.dsa.util.FileManager.load
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.temporal.TemporalAccessor;
 import java.util.UUID;
 
@@ -49,12 +49,12 @@ public class ICalConstructor {
      *            Additional data for the .ics file
      * @return InputStream of the contents of an .ics file
      */
-    public static InputStream getICal(TemporalAccessor date, String... inputData) {
+    public static InputStream getICal(TemporalAccessor date, UUID uuid, String... inputData) {
         var localDate = LocalDate.from(date);
         String[] data = inputData.length == 0 ? defaultData : inputData;
         return new ByteArrayInputStream(template.formatted( //
-                UUID.randomUUID().toString(), //
-                ICAL_DATE_FULL.format(LocalDateTime.now()), //
+                uuid.toString(), //
+                ICAL_DATE_FULL.format(Instant.now()), //
                 DateHelper.dateAt(localDate, data[3], ICAL_DATE_FULL), //
                 DateHelper.dateAt(localDate, data[4], ICAL_DATE_FULL), //
                 data[2], data[1], data[0], data[0]) //

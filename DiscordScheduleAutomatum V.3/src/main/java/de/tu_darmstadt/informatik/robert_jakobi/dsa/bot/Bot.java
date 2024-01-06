@@ -197,7 +197,7 @@ public class Bot {
                 next ? DateHelper.nextWeekEnds() : elements[2].split(";"));
         this.runningPolls.put(poll.getName(), poll);
         Message message = event.getChannel().sendMessage("@everyone\n" + poll.toString()).complete();
-        poll.setUUID(message.getId());
+        poll.setMessageId(message.getId());
         Stream.generate(Poll.getReactions()) //
                 .limit(Math.min(10, poll.getOptionCount())) //
                 .map(message::addReaction) //
@@ -219,7 +219,7 @@ public class Bot {
     private String deletePoll(String pollName, MessageReceivedEvent event) {
         if (!this.runningPolls.containsKey(pollName)) return "Poll does not exist";
         Poll poll = this.runningPolls.remove(pollName);
-        event.getChannel().retrieveMessageById(poll.getUUID()).complete().delete().queue();
+        event.getChannel().retrieveMessageById(poll.getMessageId()).complete().delete().queue();
         poll.delete();
         return "Poll deleted";
     }
@@ -243,7 +243,7 @@ public class Bot {
         answer.add(pokeReturn);
         int count = event.getTextChannel().getMembers().size();
         Poll poll = this.runningPolls.get(pollName);
-        Message message = event.getChannel().retrieveMessageById(poll.getUUID()).complete();
+        Message message = event.getChannel().retrieveMessageById(poll.getMessageId()).complete();
         TemporalAccessor date = message.getReactions() //
                 .stream() //
                 .filter(reaction -> count == reaction.getCount()) //
@@ -253,8 +253,11 @@ public class Bot {
                 .map(DateFormat.DATE_DE::parse).findFirst() //
                 .orElse(null);
         if (Objects.nonNull(date)) {
-            event.getChannel().sendFile(ICalConstructor.getICal(date), DateFormat.DATE_DE_FILE.format(date) + ".ics").queue();
+            event.getChannel()
+                    .sendFile(ICalConstructor.getICal(date, poll.getUuid()), DateFormat.DATE_DE_FILE.format(date) + ".ics")
+                    .queue();
             if (!keep) message.delete().queue();
+            this.runningPolls.remove(pollName);
             poll.delete();
             answer.add("@everyone Nächster Termin steht fest: " + DateFormat.DATE_DE.format(date));
         } else {
@@ -305,7 +308,7 @@ public class Bot {
         if (!this.runningPolls.containsKey(elements[0])) return "Poll does not exist";
         List<String> answer = new ArrayList<>();
         answer.add("Es müssen die Umfrage noch ausfüllen:");
-        elements[0] = this.runningPolls.get(elements[0]).getUUID();
+        elements[0] = this.runningPolls.get(elements[0]).getMessageId();
         List<User> filter = who(elements, event);
         event.getTextChannel() //
                 .getMembers() //
